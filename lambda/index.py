@@ -6,7 +6,6 @@ import os
 import aws_encryption_sdk
 import hashlib
 from dateutil import parser
-from Cryptodome.Cipher import AES
 from aws_encryption_sdk import DefaultCryptoMaterialsManager
 from aws_encryption_sdk.internal.crypto import WrappingKey
 from aws_encryption_sdk.key_providers.raw import RawMasterKeyProvider
