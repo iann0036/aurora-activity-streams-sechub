@@ -4,7 +4,21 @@
 
 ![Screenshot](screen.png)
 
+## Installation and Usage
+
+TBC
+
+## How It Works
+
+![Architecture](arch.png)
+
+TBC
+
 ## Lambda Performance
 
-730 millis average, once every 2 seconds @ 128MB RAM
-340 millis average, once every 2 seconds @ 256MB RAM
+The activity stream fires at least once every 2 seconds due to a heartbeat event. In my testing I achieved:
+
+* 730 millis average @ 128MB RAM
+* 340 millis average @ 256MB RAM
+
+This is likely due to the overhead required to perform the decryption operations.
