@@ -166,9 +166,7 @@ def decrypt(decoded, plaintext):
 
 
 def lambda_handler(event, context):
-    session = boto3.session.Session()
-
-    kms = session.client('kms', region_name=region_name)
+    kms = boto3.client('kms')
 
     for record in event['Records']:
         record_data = json.loads(base64.b64decode(record['kinesis']['data']))

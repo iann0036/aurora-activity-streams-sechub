@@ -1,4 +1,4 @@
-# Aurora Activity Streams to Security Hub [work-in-progress]
+# Aurora Activity Streams to Security Hub
 
 > Analyse database activity with Aurora Database Activity Streams and send findings to Security Hub
 
@@ -6,7 +6,7 @@
 
 ## Installation and Usage
 
-**Note**: At the time of writing, only the Postgres version of Aurora supports this feature.
+**Note**: At the time of writing, only Aurora Postgres 2.3 (compatibility version 10.7) and above supports activity streams.
 
 [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=test-activity-stream&templateURL=https://s3.amazonaws.com/ianmckay-ap-southeast-2/activitystream/template.yaml)
 

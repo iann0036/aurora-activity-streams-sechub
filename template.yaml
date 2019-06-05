@@ -1,1 +1,190 @@
-# TBC
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Deploys an Aurora Database Activity Stream which publishes findings to Security Hub"
+
+Parameters:
+
+    DBClusterARN:
+        Description: The ARN of the Aurora cluster
+        Type: String
+        MinLength: 1
+
+    SyncMode:
+        Description: The mode of syncronization of the activity stream (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/DBActivityStreams.html#DBActivityStreams.Enabling)
+        Type: String
+        AllowedValues:
+          - "sync"
+          - "async"
+    
+    NotificationEmailAddress:
+        Description: The e-mail address of the notification recipient (leave blank to ignore notifications)
+        Type: String
+
+Conditions: 
+
+    CreateSNS: !Not [ !Equals [ !Ref NotificationEmailAddress, "" ] ]
+
+Resources:
+
+    CustomResourceHandlerRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: "Allow"
+                    Principal:
+                        Service:
+                          - "lambda.amazonaws.com" 
+                    Action: 
+                      - "sts:AssumeRole"
+            Path: "/"
+            Policies:
+              - PolicyName: "lambdafunctionality"
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                      - Effect: "Allow"
+                        Action: "*"
+                        Resource: "*"
+
+    CustomResourceHandler:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Environment: 
+                Variables: 
+                    ACCOUNTID: !Ref "AWS::AccountId"
+                    KEY_ID: !Ref DASKey
+                    CLUSTER: !Ref DBClusterARN
+                    SYNC_MODE: !Ref SyncMode
+            Handler: "index.lambda_handler"
+            Code: 
+                S3Bucket: !Sub "ianmckay-${AWS::Region}"
+                S3Key: "activitystream/custom_resource.zip"
+            MemorySize: 128
+            Role: !GetAtt CustomResourceHandlerRole.Arn
+            Runtime: "python3.7"
+            Timeout: 600
+
+    CustomResource:
+        Type: "Custom::ActivityStreamCreator"
+        Properties:
+            ServiceToken: !GetAtt CustomResourceHandler.Arn
+    
+    DASKey:
+        Type: "AWS::KMS::Key"
+        Properties:
+            Description: "Key for Database Activity Stream"
+            KeyPolicy: 
+                Version: "2012-10-17"
+                Id: "key-policy"
+                Statement:
+                  - Sid: "Enable IAM User Permissions"
+                    Effect: "Allow"
+                    Principal:
+                        AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+                    Action: "kms:*"
+                    Resource: "*"
+                  - Sid: "Allow RDS Use"
+                    Effect: "Allow"
+                    Principal: 
+                        Service: "rds.amazonaws.com"
+                    Action: 
+                      - "kms:DescribeKey"
+                      - "kms:Encrypt"
+                      - "kms:Decrypt"
+                      - "kms:ReEncrypt*"
+                      - "kms:GenerateDataKey"
+                      - "kms:GenerateDataKeyWithoutPlaintext"
+                    Resource:
+                      - !Ref DBClusterARN
+
+    ActivityHandlerRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: "Allow"
+                    Principal:
+                        Service:
+                          - "lambda.amazonaws.com" 
+                    Action: 
+                      - "sts:AssumeRole"
+            Path: "/"
+            Policies:
+              - PolicyName: "lambdafunctionality"
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                      - Effect: "Allow"
+                        Action: "*"
+                        Resource: "*"
+
+    ActivityHandler:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Environment: 
+                Variables: 
+                    ACCOUNTID: !Ref "AWS::AccountId"
+                    KEY_ID: !Ref DASKey
+                    CLUSTER_ID: !GetAtt CustomResource.ClusterId
+                    STREAM_NAME: !GetAtt CustomResource.StreamName
+            Handler: "index.lambda_handler"
+            Code: 
+                S3Bucket: !Sub "ianmckay-${AWS::Region}"
+                S3Key: "activitystream/activity_handler.zip"
+            MemorySize: 256
+            Role: !GetAtt ActivityHandlerRole.Arn
+            Runtime: "python3.7"
+            Timeout: 10
+
+    LambdaKinesisMapping:
+        Type: "AWS::Lambda::EventSourceMapping"
+        Properties:
+            BatchSize: 100
+            EventSourceArn: !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${CustomResource.StreamName}"
+            FunctionName: !GetAtt ActivityHandler.Arn
+            StartingPosition: TRIM_HORIZON
+
+    SNSTopic:
+        Condition: CreateSNS
+        Type: "AWS::SNS::Topic"
+        Properties:
+            Subscription:
+              - Endpoint: !Ref NotificationEmailAddress
+                Protocol: "email"
+
+    SecurityHubFindingsRule:
+        Condition: CreateSNS
+        Type: "AWS::Events::Rule"
+        Properties:
+            EventPattern: |
+                {
+                    "source": [
+                        "aws.securityhub"
+                    ],
+                    "detail-type": [
+                        "Security Hub Findings - Imported"
+                    ]
+                }
+            Targets: 
+              - Arn: !Ref SNSTopic
+                Id: "SNSTopic"
+    
+    SNSTopicPolicy:
+        Condition: CreateSNS
+        Type: "AWS::SNS::TopicPolicy"
+        Properties:
+            PolicyDocument:
+                Id: "root"
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: "Allow"
+                    Principal:
+                        Service: "events.amazonaws.com"
+                    Action:
+                      - "sns:Publish"
+                    Resource: !Ref SNSTopic
+            Topics:
+              - !Ref SNSTopic
